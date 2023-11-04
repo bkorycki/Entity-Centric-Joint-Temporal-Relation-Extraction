@@ -32,7 +32,7 @@ def set_seed(seed=0):
 
 def evaluate(model, dataloader, class_names, label_ids):
 	"""
-	Returns: loss, micro_f1
+	Returns evaluation dict. with keys "score", loss", and classification report values
 	"""
 	losses = []
 	pred_list = []
@@ -57,15 +57,14 @@ def evaluate(model, dataloader, class_names, label_ids):
 			pred_list.extend(pred[labels>=0].cpu().numpy().tolist())
 			label_list.extend(labels[labels>=0].cpu().numpy().tolist())
 
-	loss = np.mean(losses)
+	result["loss"] = np.mean(losses)
 	result = classification_report(label_list, pred_list, output_dict=True, target_names=class_names, labels=label_ids)
 
 	if "micro avg" not in result:
-		score = result["accuracy"]
+		result["score"] = result["accuracy"]
 	else:
-		score = result["micro avg"]["f1-score"]
-	
-	return loss, score
+		result["score"]  = result["micro avg"]["f1-score"]
+	return result
 
 def predict(model, dataloader):
 	all_preds = []
@@ -150,15 +149,15 @@ def train(model, tokenizer, train_data, val_data, params):
 					losses = []
 					tepoch.set_postfix(loss=loss)
 				if glb_step % params['eval_steps'] == 0:
-					val_loss, val_f1 = evaluate(model, val_dataloader, classes, label_ids)
-					val_losses.append([glb_step, val_loss])
-					val_f1s.append([glb_step, val_f1])
+					result = evaluate(model, val_dataloader, classes, label_ids)
+					val_losses.append([glb_step, result["loss"]])
+					val_f1s.append([glb_step, result["score"]])
 					tepoch.set_postfix(val_loss=val_loss, val_f1=val_f1)
 
 		if glb_step % params['eval_steps'] > 0: # Eval at end of epoch (if it wasn't already at the last step)
-			val_loss, val_f1 = evaluate(model, val_dataloader, classes, label_ids)
-			val_losses.append([glb_step, val_loss])
-			val_f1s.append([glb_step, val_f1])
+			result = evaluate(model, val_dataloader, classes, label_ids)
+			val_losses.append([glb_step, result["loss"]])
+			val_f1s.append([glb_step, result["score"]])
 		# Update saved model if it's improved
 		if val_f1s[-1][1] > best_score:
 			print("Improved model performance")
