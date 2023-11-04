@@ -1,4 +1,3 @@
-I was diagnosed with bipolar 2 years ago and started taking Lamictal. Last April, my psych switched me to Abilify because of issues with my blood tests. I didn't have any side effects with the lamictal but now I feel just super antsy and restless on the abilify-- has anyone else had this issue?
 import os
 import sys
 import warnings
@@ -93,7 +92,7 @@ def predict(model, dataloader):
 	return all_preds
 
 
-def train(params, train_data, val_data):
+def train(model, tokenizer, train_data, val_data, params):
 	output_dir = setup_log(params, "train")
 	
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -102,18 +101,13 @@ def train(params, train_data, val_data):
 	print('Loading data........')
 	print(f"\t{len(train_data)} train docs, {len(val_data)} val docs")
 
-	tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
 	train_dataloader = get_dataloader(tokenizer, train_data, params['label_map'], params['max_length'], params['batch_size'], shuffle=True)
 	val_dataloader = get_dataloader(tokenizer, val_data, params['label_map'], params['max_length'], params['batch_size'], shuffle=False)
 	
 	print(f"After processing:\n\t{len(train_dataloader.dataset)} train docs, {len(val_dataloader.dataset)} val docs")
 
-	print("Loading model........")
 	classes, label_ids = list(params["label_map"].keys()), list(params["label_map"].values())
-	model = Model(len(tokenizer), out_dim=len(label_ids))
 	model = to_cuda(model)
-	print(model)
-
 	bert_optimizer = AdamW([p for p in model.encoder.model.parameters() if p.requires_grad], lr=params['bert_lr'])
 	optimizer = Adam([p for p in model.scorer.parameters() if p.requires_grad], lr=params['lr'])
 	scheduler = get_linear_schedule_with_warmup(bert_optimizer, num_warmup_steps=200, num_training_steps=len(train_dataloader) * params['epochs'])
@@ -176,21 +170,19 @@ def train(params, train_data, val_data):
 	sys.stdout.close()
 
 
-def test(params, data):
-	setup_log(params, "test")
+def test(model, tokenizer, data, params):
+	output_dir = setup_log(params, "test")
 	device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 	print(f"Device: {device}")
 
 	print(f'Loading data {len(data)} test docs...')
 
-	tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
-	dataloader = get_dataloader(tokenizer, data, params.label_mapping, params.max_length, params.batch, shuffle=False, batch_size=params.batch_size, sample_rate=params.sample_rate)
-	
-	# print("*" * 30 + "Predict"+ "*" * 30)
-	# if os.path.exists(os.path.join(output_dir, "best")):
-	# 	print("loading from", os.path.join(output_dir, "best"))
-	# 	state = torch.load(os.path.join(output_dir, "best"))
-	# 	model.load_state_dict(state["model"])
+	dataloader = get_dataloader(tokenizer, data, params["label_map"], params["max_length"], params["batch_size"], shuffle=False)
+
+	model_path = os.path.join(output_dir, "models/best")	
+	print(f"Loading model from {model_path}")
+	state = torch.load(model_path)
+	model.load_state_dict(state["model"])
 	# all_preds = predict(model, test_dataloader)
 	# dump_result("../data/MAVEN_ERE/test.jsonl", all_preds, output_dir, ignore_nonetype=args.ignore_nonetype)
 	sys.stdout.close()
@@ -199,16 +191,24 @@ def main(config_name, eval_only):
 	params = load_config(config_name)
 	set_seed(params['seed'])
 
+	# Read data
 	print("Reading data....")
 	docs = read_docs(params['data_path'])
 
 	train_data, test_data = train_test_split(docs, train_size=int(params["train_split"]*len(docs)), random_state=params["seed"])
 	test_data, val_data = train_test_split(test_data, train_size=int(params["test_split"]*len(docs)), random_state=params["seed"])
 
-	if not eval_only:
-		train(params, train_data, val_data)
+	# Load Tokenizer and model
+	tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+	model = Model(len(tokenizer), out_dim=len(params["label_map"]))
+	print(model)
 
-	# test(params, test_data)
+	if not eval_only:
+		print("Initializing training.....")
+		train(model, tokenizer, train_data, val_data, params)
+
+	print("Initializing testing.....")
+	test(model, tokenizer, test_data, params)
 	
 
 
