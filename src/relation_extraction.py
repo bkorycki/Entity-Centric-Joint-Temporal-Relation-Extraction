@@ -7,6 +7,7 @@ import random
 import torch
 import torch.nn as nn
 import numpy as np
+from pprint import pprint
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from tqdm import tqdm
@@ -57,8 +58,8 @@ def evaluate(model, dataloader, class_names, label_ids):
 			pred_list.extend(pred[labels>=0].cpu().numpy().tolist())
 			label_list.extend(labels[labels>=0].cpu().numpy().tolist())
 
-	result["loss"] = np.mean(losses)
 	result = classification_report(label_list, pred_list, output_dict=True, target_names=class_names, labels=label_ids)
+	result["loss"] = np.mean(losses)
 
 	if "micro avg" not in result:
 		result["score"] = result["accuracy"]
@@ -152,7 +153,7 @@ def train(model, tokenizer, train_data, val_data, params):
 					result = evaluate(model, val_dataloader, classes, label_ids)
 					val_losses.append([glb_step, result["loss"]])
 					val_f1s.append([glb_step, result["score"]])
-					tepoch.set_postfix(val_loss=val_loss, val_f1=val_f1)
+					tepoch.set_postfix(val_loss=result["loss"], val_f1=result["score"])
 
 		if glb_step % params['eval_steps'] > 0: # Eval at end of epoch (if it wasn't already at the last step)
 			result = evaluate(model, val_dataloader, classes, label_ids)
@@ -182,8 +183,13 @@ def test(model, tokenizer, data, params):
 	print(f"Loading model from {model_path}")
 	state = torch.load(model_path)
 	model.load_state_dict(state["model"])
+	
+	classes, label_ids = list(params["label_map"].keys()), list(params["label_map"].values())
+	print("******************** Evaluating *********************")
+
+	result = evaluate(model, dataloader, classes, label_ids)
+	pprint(result)
 	# all_preds = predict(model, test_dataloader)
-	# dump_result("../data/MAVEN_ERE/test.jsonl", all_preds, output_dir, ignore_nonetype=args.ignore_nonetype)
 	sys.stdout.close()
 
 def main(config_name, eval_only):
